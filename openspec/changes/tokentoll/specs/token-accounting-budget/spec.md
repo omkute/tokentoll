@@ -18,11 +18,15 @@ The system SHALL accurately measure prompt tokens, completion tokens, and cache-
 - **THEN** the gateway inspects stream completion usage chunks or calculates tokens incrementally to ensure complete accounting
 
 ### Requirement: Dynamic Model Pricing and Cost Attribution
-The system SHALL compute total monetary cost for each request based on a configurable model pricing matrix containing rates for input, output, and cached tokens.
+The system SHALL compute total monetary cost for each request based on a configurable model pricing matrix containing rates for input, output, and cached tokens across all supported providers, supporting both premium tiers and ultra-low pricing structures.
 
 #### Scenario: Request cost computation
 - **WHEN** a request completes with 1,000 prompt tokens and 500 completion tokens for a model with defined pricing
 - **THEN** the system calculates the accurate microdollar cost, attaches the cost to the request context, and tags it with tenant and team IDs
+
+#### Scenario: Ultra-low pricing calculation with cache discount
+- **WHEN** a request executes via a provider such as DeepSeek or Qwen with prompt context caching
+- **THEN** the system applies the discounted cache-read rate for cached tokens and the corresponding model rates to determine exact cost
 
 ### Requirement: Multi-Tenant Budget Quota Enforcement
 The system SHALL enforce soft and hard budget limits at organization, team, and virtual key levels, rejecting requests that exceed hard quotas.

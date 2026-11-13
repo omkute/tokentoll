@@ -25,9 +25,12 @@ The gateway must satisfy two conflicting demands: enterprise-grade control (deep
 |  [ Semantic Cache Check ] (Hit -> Return Instant 10ms)                             |
 |               | (Miss)                                                             |
 |               v                                                                    |
-|  [ Fallback Router & Circuit Breaker ] (Azure -> Anthropic -> OpenAI)              |
+|  [ Multi-Provider Fallback Router & Circuit Breaker ]                              |
+|    - Global Frontier: OpenAI, Anthropic, Gemini, Azure, Mistral                    |
+|    - Cheap Chinese Frontier: DeepSeek (V3/R1), Qwen, Moonshot, Zhipu               |
+|    - High-Speed LPUs: Groq / Together AI                                           |
 |               |                                                                    |
-|               v (SSE Streaming / Pass-through via Undici)                          |
+|               v (SSE Streaming & Protocol Normalizer via Undici)                   |
 |  [ Upstream Provider Execution ]                                                   |
 |               |                                                                    |
 |               v                                                                    |
@@ -77,7 +80,7 @@ The gateway must satisfy two conflicting demands: enterprise-grade control (deep
   - *Node native `http` module*: Functional but requires manual connection pool tuning and verbose boilerplate compared to `undici`.
 
 ### 3. Virtual Key Authentication via Two-Tier In-Memory Cache
-- **Decision**: Hash virtual keys (`eag_<random>`) with SHA-256. Validate keys against an in-memory LRU cache (L1) with Redis fallback (L2); PostgreSQL is queried only on cache miss or key update.
+- **Decision**: Hash virtual keys (`tt_<random>`) with SHA-256. Validate keys against an in-memory LRU cache (L1) with Redis fallback (L2); PostgreSQL is queried only on cache miss or key update.
 - **Rationale**: Direct database lookups per request would introduce 2-10ms of latency and overwhelm PostgreSQL under 5,000+ concurrent connections.
 - **Alternatives Considered**:
   - *Querying PostgreSQL on every request*: Guarantees immediate revocation consistency but causes database connection starvation and adds 5-15ms latency per request.
@@ -108,6 +111,22 @@ The gateway must satisfy two conflicting demands: enterprise-grade control (deep
 ### 7. Security Guardrail Pipeline
 - **Decision**: Execute lightweight regex and heuristic token checks for PII (credit cards, SSNs, API tokens) and prompt injection directly in Fastify's `preHandler` hook. Heavier vector-based or LLM-based classifiers are executed asynchronously or selectively based on tenant policy.
 - **Rationale**: Keeps common path latency within budget while guaranteeing baseline compliance.
+
+### 8. Multi-Provider Protocol Normalization (Top 10 Providers)
+- **Decision**: Standardize all incoming requests and outgoing responses on the OpenAI chat completion schema, utilizing a modular adapter layer for upstream execution:
+  - *Native OpenAI Wire Compatibility*: DeepSeek, Alibaba Cloud Qwen (DashScope OpenAI endpoint), Moonshot AI, Mistral AI, Groq, and Azure OpenAI receive direct pass-through requests with custom base URLs, headers, and model aliases, requiring 0ms translation overhead.
+  - *Normalized Protocol Mapping*: Anthropic Messages API and Google Gemini generateContent undergo bidirectional JSON/SSE transformation using compiled schema transformers to maintain < 5ms gateway routing latency.
+- **Rationale**: Eliminates vendor lock-in and allows multi-tenant organizations to switch providers transparently without code changes in client applications.
+- **Alternatives Considered**:
+  - *Full heavy translation engine (LiteLLM Python proxy)*: High latency and memory overhead; lightweight Node.js streaming transformers maintain target latency bounds.
+
+### 9. Cost-Aware & Resilient Fallback Routing Policies
+- **Decision**: Support configurable routing policies per virtual key and tenant:
+  - `cost-first`: Prioritizes ultra-low-cost frontier providers (DeepSeek-V3 at ~$0.14/M input, Qwen Turbo, Gemini Flash) with automatic escalation to premium models if needed.
+  - `frontier-resilience`: Routes primarily to premium frontier models (Claude 3.5 Sonnet, GPT-4o) with automatic cross-cloud fallback (e.g., Azure OpenAI -> Anthropic -> DeepSeek) upon 5xx errors, rate limits (HTTP 429), or timeouts.
+- **Rationale**: Delivers enterprise uptime resilience while enabling up to 80-90% cost savings for high-volume background workloads.
+- **Alternatives Considered**:
+  - *Static single-provider routing*: Exposes callers to outages and high token bills without dynamic failover.
 
 ## Risks / Trade-offs
 

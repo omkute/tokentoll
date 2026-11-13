@@ -29,11 +29,15 @@ The system SHALL enforce granular authorization policies per virtual key, includ
 - **THEN** the system rejects the request with an HTTP 403 Forbidden error indicating unauthorized model access
 
 ### Requirement: Upstream Provider Credential Vault
-The system SHALL securely store upstream LLM provider API credentials using AES-256-GCM encryption at rest and inject them dynamically during data plane upstream dispatch.
+The system SHALL securely store upstream LLM provider API credentials using AES-256-GCM encryption at rest across supported frontier and high-efficiency providers (OpenAI, Anthropic, Gemini, Azure, DeepSeek, Qwen, Moonshot, Zhipu, Mistral, Groq), dynamically resolving secrets and base URLs during upstream dispatch.
 
 #### Scenario: Upstream request dispatch with masked credentials
 - **WHEN** the gateway proxies an authorized request to an upstream provider endpoint
 - **THEN** the system decrypts the corresponding upstream provider key in memory, injects it into the upstream request header, and ensures it is never logged or leaked to clients
+
+#### Scenario: Cost-effective Chinese provider credential resolution
+- **WHEN** an authorized request targets a provider such as DeepSeek, Alibaba Cloud Qwen, Moonshot, or Zhipu
+- **THEN** the system resolves the encrypted provider key and target regional base URL, authenticates the upstream call, and prevents credential leakage
 
 #### Scenario: Immediate key revocation
 - **WHEN** an administrator revokes a virtual key or an upstream provider key

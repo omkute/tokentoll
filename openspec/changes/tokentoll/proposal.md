@@ -13,10 +13,15 @@ Modern enterprises adopting Large Language Models (LLMs) struggle with unpredict
 - **Data Plane (Fastify Serving Engine)**:
   - High-concurrency, ultra-low-latency drop-in OpenAI-compatible proxy engine (`/v1/chat/completions`, `/v1/embeddings`, `/v1/models`).
   - High-performance streaming (Server-Sent Events) pipeline with non-blocking backpressure handling.
-  - Multi-provider model routing with dynamic fallback chains (e.g., Azure OpenAI -> Anthropic -> Self-hosted / Open-source endpoints) and circuit breaking.
+  - Multi-provider model routing with dynamic fallback chains across the **Top 10 Frontier & High-Efficiency Providers**:
+    - **Global Frontier**: OpenAI, Anthropic, Google Gemini, Azure OpenAI, Mistral AI.
+    - **Cost-Effective Chinese Models**: DeepSeek (V3 & R1), Alibaba Cloud Qwen / DashScope, Moonshot AI (Kimi), Zhipu AI (GLM).
+    - **High-Throughput Acceleration**: Groq / Together AI LPUs.
+  - Protocol adapter layer normalizing heterogeneous upstream APIs (e.g. Anthropic Messages, Gemini generateContent, DashScope) to the standard OpenAI interface with < 5ms gateway routing overhead.
 - **Accounting & Quotas**:
   - Exact token-level accounting (input tokens, output tokens, cached tokens) across streaming and non-streaming requests.
-  - Dynamic model pricing catalog and real-time cost calculation per tenant/team/user/key.
+  - Dynamic model pricing catalog supporting high-end frontier models down to ultra-cheap tiers (e.g., DeepSeek-V3, Qwen Turbo, Gemini Flash) and context caching discounts.
+  - Real-time cost calculation per tenant/team/user/key.
   - Hard and soft budget enforcement with atomic pre-allocation checks and non-blocking asynchronous usage telemetry persisted to PostgreSQL.
 - **Resilience & Caching**:
   - Semantic caching using Redis and vector embeddings to eliminate redundant LLM calls and reduce latency.
