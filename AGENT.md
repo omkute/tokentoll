@@ -1,0 +1,121 @@
+# tokenToll Project Agent Guide
+
+## Mission
+
+Build tokenToll as a high-performance, multi-tenant AI gateway that presents a consistent interface over multiple LLM providers while centralizing routing, reliability, security, quotas, caching, accounting, and observability.
+
+The primary engineering objective is to sustain 5,000 requests per second in controlled mock-provider benchmarks. This is a target to measure, not an assumed capability. Optimize only from reproducible evidence.
+
+The human developer is building the system to understand backend engineering, distributed systems, concurrency, security, and performance. Preserve that learning objective: explain decisions, expose trade-offs, and guide implementation incrementally rather than hiding complexity behind large generated changes.
+
+## Source of truth
+
+`AGENT.md` is the only retained project document. Before planning or changing behavior:
+
+1. Read this guide.
+2. Inspect the current repository, tests, and configuration.
+3. Identify the single approved scope before creating planning or implementation artifacts.
+
+When specifications, designs, tasks, or code are introduced, treat them as scoped sources of truth. If they disagree, report the discrepancy and resolve it before implementing.
+
+## Current development stage
+
+The repository is currently planning-only. The first executable milestone is the minimal gateway foundation:
+
+- Node.js and TypeScript service.
+- Fastify application entrypoint.
+- Environment-based configuration boundary.
+- Liveness/health endpoint suitable for probes.
+- Formatting, linting, type checking, tests, and production-build checks.
+
+The foundation milestone excludes PostgreSQL, Redis, authentication, provider integrations, routing, streaming, caching, billing, and security guardrails. Keep those later capabilities out of the foundation scope.
+
+## Architectural model
+
+Keep two operational planes distinct:
+
+```text
+Client
+  |
+  v
+Data plane: authenticate -> enforce policy -> cache -> route -> adapt -> stream
+  |
+  +--> asynchronous usage and audit events
+  |
+  v
+Control plane: tenants -> teams -> keys -> providers -> budgets -> reporting
+```
+
+The data plane is latency-sensitive and must avoid administrative work and synchronous telemetry writes on the request path. Provider-specific behavior belongs behind explicit adapters; gateway contracts must remain provider-neutral.
+
+### Unified model classification
+
+Represent every routable provider/model target as one `model deployment` entity in a unified catalog. Provider origin, nationality, market position, or labels such as global, frontier, premium, and cost-efficient are not separate model classes and must not create separate specifications, modules, routing branches, or configuration entities.
+
+Determine deployment eligibility from supported capabilities, context limits, tenant/key policy, governance restrictions, credentials, availability, health, and circuit state. After eligibility is established, cost-aware routing compares the same configured input-token, output-token, and cache-token rates for every deployment. Use explicit operator policy for any preference that is not cost-based.
+
+## Planned capability order
+
+Implement and verify one bounded change at a time:
+
+1. Foundation and deployable process.
+2. Provider-neutral request/response contracts with mock providers.
+3. OpenAI-compatible non-streaming proxy.
+4. SSE streaming, cancellation, backpressure, and resource cleanup.
+5. Provider routing, timeouts, retries, fallback, and circuit breaking.
+6. Tenant identity, RBAC, virtual keys, and credential protection.
+7. Token accounting, pricing, budgets, and asynchronous telemetry.
+8. Redis rate limiting, concurrency bounds, and controlled caching.
+9. PII protection, prompt-injection checks, and output scrubbing.
+10. Reproducible benchmarks and evidence-based optimization.
+
+Later capabilities must not be smuggled into an earlier change merely because they appear in the long-range roadmap.
+
+## Engineering rules
+
+- Follow a specification-driven lifecycle: explore, propose, specify, design, plan, implement, review, verify, then archive.
+- Do not write application code, install dependencies, modify infrastructure, commit, or deploy without explicit user permission.
+- During implementation, work on one approved task at a time and wait for approval before moving to the next task.
+- Prefer small, explicit modules and stable interfaces over premature abstractions.
+- Bound queues, concurrency, retries, request bodies, response buffers, and cache lifetimes.
+- Propagate deadlines and cancellation from the client through every upstream call.
+- Ensure graceful shutdown closes listeners, upstream connections, timers, pools, and background workers.
+- Keep control-plane operations off the hot serving path wherever practical.
+- Treat external provider behavior as unreliable: normalize errors, classify retryability, and prevent retry storms.
+- Avoid logging prompts, completions, credentials, authorization headers, or other sensitive payloads by default.
+- Store only cryptographic hashes of virtual keys and protect provider credentials with authenticated encryption.
+- Enforce tenant identity at every data access boundary; never trust tenant identifiers supplied only by clients.
+
+## Performance discipline
+
+Every performance claim must identify:
+
+- Hardware and runtime versions.
+- Request and response payload sizes.
+- Concurrency and test duration.
+- Mock-provider latency and failure behavior.
+- Whether upstream latency is included or excluded.
+- Throughput, p50, p95, p99, error rate, CPU, memory, and event-loop lag.
+
+The gateway-overhead target is p95 under 5 ms in a defined steady-state benchmark. Memory must remain bounded under concurrency, streaming, retries, cache misses, provider failure, and client disconnects. Never describe a target as achieved without benchmark evidence.
+
+## Testing expectations
+
+Use the narrowest test that proves the behavior, then add integration coverage at module boundaries. Include success, invalid input, timeout, cancellation, upstream failure, retry exhaustion, tenant isolation, credential secrecy, and resource cleanup cases where applicable.
+
+For provider behavior, prefer deterministic mock providers before live integrations. For streaming, test incremental delivery, backpressure, client aborts, upstream aborts, partial usage accounting, and socket cleanup. For resilience, test bounded retries and ensure fallback does not duplicate non-idempotent work.
+
+Quality checks must include formatting, linting, type checking, unit tests, integration tests where applicable, build verification, specification validation when specifications exist, and benchmark execution for performance-sensitive changes.
+
+## Collaboration protocol
+
+When beginning work:
+
+1. Inspect repository state, the current approved plan, and incomplete tasks.
+2. State the current scope and the single task being addressed.
+3. Explain relevant concepts and alternatives before asking for an architectural decision.
+4. Make no unapproved implementation changes.
+5. After implementation, review against requirements, security, concurrency, resource lifecycle, and performance.
+6. Report commands run and their actual results; never fabricate tests or benchmark results.
+
+When a request expands scope, stop and identify the new decision or OpenSpec change required. Keep the system understandable, measured, and incrementally deployable.
