@@ -19,32 +19,43 @@ testable, and reusable.
 - Measure performance through reproducible benchmarks rather than unsupported
   claims.
 
-## Current status
+## Architecture
 
-The deployable foundation is implemented. It includes:
+tokenToll sits between client applications and model providers. Clients send a
+normalized request to the gateway; provider-specific translation ends at an
+adapter boundary. Operators manage deployments and policy through a separate
+control plane, while usage and audit events leave the request path
+asynchronously.
 
-- A strict Node.js and TypeScript Fastify service.
-- Validated environment configuration before the listener opens.
-- An unauthenticated `GET /health` process-liveness endpoint.
-- Graceful, time-bounded `SIGINT` and `SIGTERM` shutdown.
-- Safe startup and shutdown diagnostics that avoid environment dumps.
-- Unit, integration, and production-process lifecycle tests.
-- Formatting, linting, type checking, tests, and production builds through Bun.
+```mermaid
+flowchart LR
+    Client[Client application] --> Edge
+    Operator[Platform operator] --> Control
 
-Provider adapters, proxy endpoints, routing, tenancy, billing, caching, and
-guardrails are planned milestones and are not presented as completed features.
+    subgraph Gateway[tokenToll]
+      Edge[Request boundary] --> Identity[Trusted identity]
+      Identity --> Policy[Policy and limits]
+      Policy --> Router[Deployment eligibility and routing]
+      Router --> Adapter[Provider adapter]
+      Control[Control plane] --> Policy
+      Control --> Router
+    end
 
-## Planned gateway features
+    Adapter --> Providers[LLM providers]
+    Edge -.->|bounded usage and audit events| Telemetry[Telemetry consumers]
+```
 
-- Provider-neutral request, response, usage, stream-event, and error contracts.
-- Deterministic mock providers followed by approved live-provider adapters.
-- OpenAI-compatible non-streaming proxy support and SSE streaming.
-- Deadline propagation, cancellation, bounded retries, fallback, and circuits.
-- Cost-aware deployment routing using consistent token-pricing fields.
-- Tenant identity, RBAC, virtual keys, and encrypted provider credentials.
-- Token accounting, budgets, asynchronous telemetry, distributed limits, and
-  controlled caching.
-- PII, prompt-injection, and output-scrubbing policy boundaries.
+### Architectural building blocks
+
+| Area                | Responsibility                                                                                 |
+| ------------------- | ---------------------------------------------------------------------------------------------- |
+| Request boundary    | Validate input, establish request context, and expose stable gateway contracts.                |
+| Identity and policy | Derive trusted tenant scope and apply authorization, limits, budgets, and governance.          |
+| Deployment catalog  | Describe provider/model targets, capabilities, context limits, health, and token prices.       |
+| Router              | Filter eligible deployments and apply explicit selection and resilience policies.              |
+| Provider adapters   | Translate normalized requests, responses, streams, usage, and errors at the provider boundary. |
+| Usage pipeline      | Emit bounded asynchronous usage and audit events away from the latency-sensitive request path. |
+| Control plane       | Manage tenants, keys, credentials, deployments, pricing, budgets, and reporting inputs.        |
 
 ## Architecture principles
 
@@ -112,6 +123,3 @@ bun run check
 - [Architecture](docs/architecture.md)
 - [Roadmap](docs/roadmap.md)
 - [Architecture decisions](docs/adr/README.md)
-
-The performance goals of 5,000 RPS and p95 gateway overhead below 5 ms remain
-unverified objectives until a reproducible benchmark demonstrates them.
