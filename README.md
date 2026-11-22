@@ -1,13 +1,87 @@
 # tokenToll
 
-tokenToll is a provider-neutral AI gateway under incremental development. The
-current foundation change is limited to a Node.js, TypeScript, and Fastify
-service with environment configuration, liveness, process lifecycle, and
-quality checks.
+**A provider-neutral, multi-tenant gateway for reliable and governed access to
+large language models.**
 
-## Runtime configuration
+tokenToll aims to give application teams one consistent interface for multiple
+LLM providers while centralizing routing, reliability, security, usage policy,
+and observability. Instead of every product rebuilding provider integrations and
+operational safeguards, the gateway is designed to make those concerns explicit,
+testable, and reusable.
 
-The service reads these variables before opening its HTTP listener:
+## Project goals
+
+- Keep application contracts independent of provider-specific SDKs.
+- Route requests across eligible model deployments with bounded failure handling.
+- Support non-streaming and streaming traffic with cancellation and cleanup.
+- Enforce tenant-aware identity, quotas, budgets, credentials, and governance.
+- Produce trustworthy usage and audit data without blocking the request path.
+- Measure performance through reproducible benchmarks rather than unsupported
+  claims.
+
+## Current status
+
+The deployable foundation is implemented. It includes:
+
+- A strict Node.js and TypeScript Fastify service.
+- Validated environment configuration before the listener opens.
+- An unauthenticated `GET /health` process-liveness endpoint.
+- Graceful, time-bounded `SIGINT` and `SIGTERM` shutdown.
+- Safe startup and shutdown diagnostics that avoid environment dumps.
+- Unit, integration, and production-process lifecycle tests.
+- Formatting, linting, type checking, tests, and production builds through Bun.
+
+Provider adapters, proxy endpoints, routing, tenancy, billing, caching, and
+guardrails are planned milestones and are not presented as completed features.
+
+## Planned gateway features
+
+- Provider-neutral request, response, usage, stream-event, and error contracts.
+- Deterministic mock providers followed by approved live-provider adapters.
+- OpenAI-compatible non-streaming proxy support and SSE streaming.
+- Deadline propagation, cancellation, bounded retries, fallback, and circuits.
+- Cost-aware deployment routing using consistent token-pricing fields.
+- Tenant identity, RBAC, virtual keys, and encrypted provider credentials.
+- Token accounting, budgets, asynchronous telemetry, distributed limits, and
+  controlled caching.
+- PII, prompt-injection, and output-scrubbing policy boundaries.
+
+## Architecture principles
+
+The design keeps provider behavior behind adapters, separates the
+latency-sensitive data plane from administrative control-plane work, and treats
+tenant identity as a data-boundary invariant. Concurrency, queues, retries,
+bodies, buffers, timers, and cache lifetimes must remain bounded. Sensitive
+prompts, completions, credentials, and authorization data are excluded from logs
+by default.
+
+## Technology
+
+- Node.js 22+, TypeScript, and Fastify
+- Bun for dependency management and task execution
+- ESLint and Prettier for static quality checks
+- Bun's test runner for unit and integration coverage
+- OpenSpec for specification-driven delivery
+
+## Run locally
+
+```sh
+bun install --frozen-lockfile
+bun run build
+HOST=127.0.0.1 bun run start
+```
+
+The service starts on port `3000` by default. Verify liveness with:
+
+```sh
+curl http://127.0.0.1:3000/health
+```
+
+```json
+{ "status": "ok" }
+```
+
+### Runtime configuration
 
 | Variable            | Default   | Valid values                                  |
 | ------------------- | --------- | --------------------------------------------- |
@@ -15,49 +89,29 @@ The service reads these variables before opening its HTTP listener:
 | `PORT`              | `3000`    | A decimal integer from `1` through `65535`    |
 | `SHUTDOWN_GRACE_MS` | `10000`   | A decimal integer from `1` through `60000` ms |
 
-Surrounding whitespace is trimmed from configured values. Invalid variables
-cause configuration loading to fail before the service listens.
+Invalid configuration fails before the HTTP listener opens. `GET /health`
+reports process liveness only; it does not claim downstream readiness.
 
-The default host binds on all network interfaces for deployable environments.
-For a local-only listener, set:
-
-```sh
-HOST=127.0.0.1
-```
-
-## Health endpoint
-
-`GET /health` is an unauthenticated process-liveness probe. While the service is
-live and accepting requests, it returns HTTP 200 with a JSON content type and
-this exact body:
-
-```json
-{ "status": "ok" }
-```
-
-The endpoint does not report readiness or the state of databases, providers,
-caches, telemetry, or other downstream dependencies.
-
-## Build and run
-
-Install the locked dependencies and compile the production artifact:
+## Development
 
 ```sh
-bun install --frozen-lockfile
+bun run format:check
+bun run lint
+bun run typecheck
+bun run test
 bun run build
+bun run check
 ```
 
-Start the compiled Node.js service from `dist/server.js` through the package
-script:
+`bun run check` is the non-mutating aggregate verification command.
 
-```sh
-bun run start
-```
+## Documentation
 
-Send `SIGINT` or `SIGTERM` to shut down. The process stops accepting new
-connections, waits for active requests while Fastify closes, and exits with
-status 0 when closure finishes within `SHUTDOWN_GRACE_MS`.
+- [Vision](docs/vision.md)
+- [Requirements](docs/requirements.md)
+- [Architecture](docs/architecture.md)
+- [Roadmap](docs/roadmap.md)
+- [Architecture decisions](docs/adr/README.md)
 
-Invalid configuration and listener startup failures exit non-zero without
-opening the service. A closure error or grace-period timeout also reports a
-generic shutdown failure and exits non-zero.
+The performance goals of 5,000 RPS and p95 gateway overhead below 5 ms remain
+unverified objectives until a reproducible benchmark demonstrates them.
