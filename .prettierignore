@@ -1,0 +1,8 @@
+.agents/
+docs/
+openspec/
+coverage/
+dist/
+node_modules/
+bun.lock
+requirements.txt

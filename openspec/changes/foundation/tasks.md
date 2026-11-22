@@ -3,14 +3,14 @@
 ## 1. Bun and TypeScript Toolchain
 
 - [x] 1.1 Create `package.json` with Node.js ESM metadata, Fastify runtime dependency, TypeScript/ESLint/Prettier development tooling, and the agreed Bun scripts; generate and commit `bun.lock`, then verify `bun install --frozen-lockfile` succeeds without changing it.
-- [ ] 1.2 Add strict production and no-emit TypeScript configuration plus flat ESLint and Prettier configuration, then verify a minimal typed source fixture passes `bun run format:check`, `bun run lint`, and `bun run typecheck` before replacing the fixture with the service modules.
+- [x] 1.2 Add strict production and no-emit TypeScript configuration plus flat ESLint and Prettier configuration, then verify a minimal typed source fixture passes `bun run format:check`, `bun run lint`, and `bun run typecheck` before replacing the fixture with the service modules.
 - [ ] 1.3 Add repository ignore rules for dependencies, build output, coverage, and local environment files, then verify `git status --short` does not show ignored generated artifacts after an install and build.
 
 ## 2. Runtime Configuration
 
-- [ ] 2.1 Implement the read-only configuration model and parser in `src/config.ts`, then verify focused Bun tests cover defaults, valid overrides, whitespace, integer syntax, every numeric boundary, and multiple simultaneous invalid variables.
-- [ ] 2.2 Implement structured safe configuration errors that expose invalid variable names without environment dumps, then verify focused tests assert diagnostics omit unrelated environment keys and their values.
-- [ ] 2.3 Document `HOST`, `PORT`, and `SHUTDOWN_GRACE_MS`, their defaults and ranges, and the local-only `HOST=127.0.0.1` option in the project README; verify every documented value matches the runtime-configuration spec and parser tests.
+- [x] 2.1 Implement the read-only configuration model and parser in `src/config.ts`, then verify focused Bun tests cover defaults, valid overrides, whitespace, integer syntax, every numeric boundary, and multiple simultaneous invalid variables.
+- [x] 2.2 Implement structured safe configuration errors that expose invalid variable names without environment dumps, then verify focused tests assert diagnostics omit unrelated environment keys and their values.
+- [x] 2.3 Document `HOST`, `PORT`, and `SHUTDOWN_GRACE_MS`, their defaults and ranges, and the local-only `HOST=127.0.0.1` option in the project README; verify every documented value matches the runtime-configuration spec and parser tests.
 
 ## 3. Fastify Application and Health Boundary
 
