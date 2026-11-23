@@ -737,13 +737,21 @@ async function withDeadline(
 
 /**
  * Streams an optional first content delta, then waits for the abort signal
- * and ends without further events. `settled` resolves once the adapter
- * observed the cancellation, proving the pending read did not outlive it.
+ * and ends without further events. Without a delta the adapter parks
+ * before its first yield: the stream is admitted but never commits.
+ * `entered` proves the generator was admitted; `settled` resolves once the
+ * adapter observed the cancellation, proving the pending read did not
+ * outlive it.
  */
 function abortWaitingAdapter(delta?: string): {
   readonly adapter: ProviderAdapter;
+  readonly entered: Promise<void>;
   readonly settled: Promise<boolean>;
 } {
+  let markEntered: () => void = () => {};
+  const entered = new Promise<void>((resolve) => {
+    markEntered = resolve;
+  });
   let markSettled: (aborted: boolean) => void = () => {};
   const settled = new Promise<boolean>((resolve) => {
     markSettled = resolve;
@@ -753,6 +761,7 @@ function abortWaitingAdapter(delta?: string): {
       return success;
     },
     async *stream(invocation) {
+      markEntered();
       if (delta !== undefined)
         yield createStreamEvent({ type: "content_delta", delta });
       const signal = invocation.signal;
@@ -766,7 +775,7 @@ function abortWaitingAdapter(delta?: string): {
       markSettled(signal?.aborted === true);
     },
   };
-  return { adapter, settled };
+  return { adapter, entered, settled };
 }
 
 /** First stream hangs until aborted; every later stream completes normally. */
@@ -1075,6 +1084,302 @@ test("64 open streams hold capacity; completing one releases it for the next req
     for (const { open } of held) open.destroy();
     await nextTickTurn();
     await app.close();
+  }
+  expect(unhandled).toEqual([]);
+});
+
+// ---------------------------------------------------------------------------
+// Application shutdown (task 2.6)
+// ---------------------------------------------------------------------------
+//
+// preClose aborts every registered stream with "shutdown" and awaits its
+// settlement, so app.close() finishes while the adapter is still parked and
+// the hijacked response ends with the one safe error frame instead of DONE.
+
+/** Bounded wait so a stuck close fails loudly instead of hanging the run. */
+function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  message: string,
+): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<never>((_resolve, reject) => {
+    timeout = setTimeout(() => reject(new Error(message)), timeoutMs);
+  });
+
+  return Promise.race([promise, timeoutPromise]).finally(() => {
+    if (timeout !== undefined) {
+      clearTimeout(timeout);
+    }
+  });
+}
+
+/** Decodes a `Transfer-Encoding: chunked` body captured from a raw socket. */
+function decodeChunked(raw: string): string {
+  let body = "";
+  let rest = raw;
+  for (;;) {
+    const lineEnd = rest.indexOf("\r\n");
+    if (lineEnd < 0) return body;
+    const size = Number.parseInt(rest.slice(0, lineEnd), 16);
+    if (Number.isNaN(size) || size < 0) return body;
+    if (size === 0) return body;
+    rest = rest.slice(lineEnd + 2);
+    if (rest.length < size + 2) return body; // truncated capture
+    body += rest.slice(0, size);
+    rest = rest.slice(size + 2);
+  }
+}
+
+/** Raw last-chunk bytes that end every chunked response body. */
+const CHUNKED_END = "0\r\n\r\n";
+
+/** An open SSE request that accumulates the full body until it closes. */
+interface CollectedStream {
+  readonly status: Promise<number>;
+  readonly firstChunk: Promise<void>;
+  readonly closed: Promise<string>;
+  destroy(): void;
+}
+
+function openCollectedStreamRequest(
+  url: URL,
+  payload: unknown,
+): CollectedStream {
+  const body = JSON.stringify(payload);
+  let markStatus: (status: number) => void = () => {};
+  const status = new Promise<number>((resolve) => {
+    markStatus = resolve;
+  });
+  let markFirst: () => void = () => {};
+  const firstChunk = new Promise<void>((resolve) => {
+    markFirst = resolve;
+  });
+  let markClosed: (body: string) => void = () => {};
+  const closed = new Promise<string>((resolve) => {
+    markClosed = resolve;
+  });
+
+  // Hand-written chunked request on a raw socket, matching the helper above:
+  // a framed request body keeps this independent of client body buffering.
+  let headersEnded = false;
+  let received = "";
+  const socket = connect(Number(url.port), url.hostname, () => {
+    socket.write(
+      "POST /v1/chat/completions HTTP/1.1\r\n" +
+        `Host: ${url.hostname}\r\n` +
+        "Content-Type: application/json\r\n" +
+        "Connection: close\r\n" +
+        "Transfer-Encoding: chunked\r\n\r\n",
+    );
+    const size = Buffer.byteLength(body, "utf8").toString(16);
+    socket.write(`${size}\r\n${body}\r\n0\r\n\r\n`);
+  });
+  const bodyBytes = (): string => {
+    const separator = received.indexOf("\r\n\r\n");
+    return separator < 0 ? "" : received.slice(separator + 4);
+  };
+  socket.on("data", (data: Buffer) => {
+    received += data.toString("utf8");
+    if (!headersEnded) {
+      const separator = received.indexOf("\r\n\r\n");
+      if (separator < 0) return;
+      headersEnded = true;
+      const statusLine = received.slice(0, separator).split("\r\n", 1)[0] ?? "";
+      const statusCode = Number.parseInt(statusLine.split(" ")[1] ?? "0", 10);
+      markStatus(Number.isNaN(statusCode) ? 0 : statusCode);
+    }
+    if (bodyBytes().length > 0) markFirst();
+    // The last chunk ends the response even when the runtime keeps the
+    // socket open after a hijacked stream completes.
+    if (received.includes(CHUNKED_END)) markClosed(bodyBytes());
+  });
+  // Destroying the socket must not surface as an unhandled socket error.
+  socket.on("error", () => {});
+  socket.on("close", () => {
+    markClosed(bodyBytes());
+  });
+
+  return {
+    status,
+    firstChunk,
+    closed,
+    destroy() {
+      socket.destroy();
+    },
+  };
+}
+
+/** Asserts the listener is gone: a health request can no longer be served. */
+async function expectListenerRefused(port: number): Promise<void> {
+  try {
+    await fetch(`http://127.0.0.1:${port}/health`);
+  } catch {
+    return;
+  }
+  throw new Error("Health request was served after close");
+}
+
+test("app.close() aborts the active stream and settles it without DONE", async () => {
+  const { adapter, settled } = abortWaitingAdapter("Partial");
+  const app = createApp({ adapter });
+  const url = new URL(await app.listen({ host: "127.0.0.1", port: 0 }));
+  const unhandled: unknown[] = [];
+  const onUnhandled = (error: unknown) => {
+    unhandled.push(error);
+  };
+  process.on("unhandledRejection", onUnhandled);
+
+  let open: CollectedStream | undefined;
+  try {
+    open = openCollectedStreamRequest(url, streamRequest);
+    expect(await open.status).toBe(200);
+    await open.firstChunk;
+
+    // The adapter is parked mid-stream; closing the application must abort
+    // it and settle the stream instead of waiting out the request deadline.
+    await withTimeout(app.close(), 2_000, "app.close() did not settle");
+    const raw = await withTimeout(
+      open.closed,
+      2_000,
+      "Stream socket did not close after shutdown",
+    );
+
+    // The stream ended with the one fixed shutdown error frame, never DONE.
+    const frames = parseFrames(decodeChunked(raw));
+    expect(frames).toHaveLength(2);
+    expect(parseChunk(frames[0] ?? "").choices[0]?.delta.content).toBe(
+      "Partial",
+    );
+    expect(JSON.parse(frames[1] ?? "")).toEqual(
+      new ProxyError("internal_error").body,
+    );
+    expect(raw).not.toContain("[DONE]");
+    expect(await settled).toBe(true);
+
+    await expectListenerRefused(Number(url.port));
+  } finally {
+    process.off("unhandledRejection", onUnhandled);
+    open?.destroy();
+    // A failure before close would otherwise strand the parked adapter.
+    await app.close();
+    await nextTickTurn();
+  }
+  expect(unhandled).toEqual([]);
+});
+
+test("app.close() settles a stream whose adapter has not yet produced an event", async () => {
+  // Without a delta the adapter parks before its first yield: the stream
+  // is admitted (permit held, deadline armed) but never commits.
+  const { adapter, entered, settled } = abortWaitingAdapter();
+  const app = createApp({ adapter });
+  const url = new URL(await app.listen({ host: "127.0.0.1", port: 0 }));
+  const unhandled: unknown[] = [];
+  const onUnhandled = (error: unknown) => {
+    unhandled.push(error);
+  };
+  process.on("unhandledRejection", onUnhandled);
+
+  let open: CollectedStream | undefined;
+  try {
+    open = openCollectedStreamRequest(url, streamRequest);
+    await withTimeout(entered, 2_000, "Adapter never entered its stream");
+
+    // The stream is admitted (permit held, deadline armed) but the adapter
+    // has not produced its first event, so nothing has committed. Closing
+    // must abort and settle it now instead of blocking on the open
+    // connection until the request deadline outlives the grace period.
+    await withTimeout(
+      app.close(),
+      2_000,
+      "app.close() did not settle the pre-commit stream",
+    );
+    expect(await settled).toBe(true);
+
+    const raw = await withTimeout(
+      open.closed,
+      2_000,
+      "Pre-commit stream socket did not close after shutdown",
+    );
+    // No SSE content was ever written, so never a [DONE] frame. Pre-commit,
+    // the mapped 500 internal_error body or a bare socket close (empty
+    // capture) are both valid settlement outcomes.
+    expect(raw).not.toContain("[DONE]");
+    expect(raw).not.toContain("data: ");
+    if (raw.length > 0)
+      expect(JSON.parse(raw)).toEqual(new ProxyError("internal_error").body);
+
+    await expectListenerRefused(Number(url.port));
+  } finally {
+    process.off("unhandledRejection", onUnhandled);
+    open?.destroy();
+    // A failure before close would otherwise strand the parked adapter.
+    await app.close();
+    await nextTickTurn();
+  }
+  expect(unhandled).toEqual([]);
+});
+
+test("closing one application leaves another application's stream untouched", async () => {
+  // Two independent applications: A parks until released, B parks until
+  // aborted. Closing B must abort only B's registry entry, proving the
+  // registries are per-application rather than module-global.
+  const holding = holdingAdapter();
+  const waiting = abortWaitingAdapter("Partial");
+  const appA = createApp({ adapter: holding.adapter });
+  const appB = createApp({ adapter: waiting.adapter });
+  const urlA = new URL(await appA.listen({ host: "127.0.0.1", port: 0 }));
+  const urlB = new URL(await appB.listen({ host: "127.0.0.1", port: 0 }));
+  const unhandled: unknown[] = [];
+  const onUnhandled = (error: unknown) => {
+    unhandled.push(error);
+  };
+  process.on("unhandledRejection", onUnhandled);
+
+  let streamA: CollectedStream | undefined;
+  let streamB: CollectedStream | undefined;
+  try {
+    streamA = openCollectedStreamRequest(urlA, streamRequest);
+    streamB = openCollectedStreamRequest(urlB, streamRequest);
+    expect(await streamA.status).toBe(200);
+    expect(await streamB.status).toBe(200);
+    await streamA.firstChunk;
+    await streamB.firstChunk;
+
+    // B's shutdown aborts and settles only B's stream.
+    await withTimeout(appB.close(), 2_000, "appB.close() did not settle");
+    const rawB = await withTimeout(
+      streamB.closed,
+      2_000,
+      "Stream B did not close after shutdown",
+    );
+    expect(rawB).not.toContain("[DONE]");
+    expect(JSON.parse(parseFrames(decodeChunked(rawB))[1] ?? "")).toEqual(
+      new ProxyError("internal_error").body,
+    );
+    expect(await waiting.settled).toBe(true);
+
+    // A's stream was never aborted: releasing it completes normally with
+    // the finish chunk and DONE, so B's close did not touch A's registry.
+    const held = holding.streams[0];
+    if (held === undefined) throw new Error("stream A was not registered");
+    held.release();
+    await held.settled;
+    const rawA = await withTimeout(
+      streamA.closed,
+      2_000,
+      "Stream A did not complete after release",
+    );
+    expect(parseFrames(decodeChunked(rawA)).at(-1)).toBe("[DONE]");
+  } finally {
+    process.off("unhandledRejection", onUnhandled);
+    for (const handle of holding.streams) handle.release();
+    await Promise.all(holding.streams.map(({ settled }) => settled));
+    streamA?.destroy();
+    streamB?.destroy();
+    await appB.close();
+    await appA.close();
+    await nextTickTurn();
   }
   expect(unhandled).toEqual([]);
 });

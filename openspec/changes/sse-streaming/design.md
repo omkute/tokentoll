@@ -65,9 +65,11 @@ Absolute deadlines inside the invocation were rejected because adapters would ne
 
 ### Per-application stream registry for admission and shutdown
 
-Reuse the existing per-application active counter: a streaming invocation holds its permit for the iterator lifetime. Add a per-application registry mapping each active stream to its controller and a completion promise. The route registers on commit and unregisters in `finally`.
+Reuse the existing per-application active counter: a streaming invocation holds its permit for the iterator lifetime. Add a per-application registry mapping each active stream to its controller and a completion promise. The route registers on admission — synchronously, after the controller and deadline are created and before the adapter is invoked — and unregisters in `finally`, so a stream whose adapter has not yet produced its first event is still registered and closable.
 
-The plugin registers a `preClose` hook that aborts every active controller and awaits `Promise.allSettled` of the completion promises. This lets `app.close()` finish inside the existing `SHUTDOWN_GRACE_MS` race; if settlement still exceeds the grace period, the existing shutdown timeout path exits non-zero.
+The plugin registers a `preClose` hook that first marks the application closing, so new streaming requests are rejected with `gateway_busy` before admission, then loops: abort every registered controller with `"shutdown"` and await `Promise.allSettled` of that snapshot's completion promises until the registry empties. This lets `app.close()` finish inside the existing `SHUTDOWN_GRACE_MS` race; if settlement still exceeds the grace period, the existing shutdown timeout path exits non-zero. Non-streaming requests keep draining through close as before.
+
+Registering on commit was rejected because a request admitted before its first adapter event held a permit, an armed deadline, and an open iterator with no registry entry: shutdown would abort nothing, `app.close()` would block on the open connection until the request deadline outlived the grace race, and the process would exit non-zero. A shutdown-only forced exit was rejected in favor of settling the stream through the same cancellation signal as every other cause.
 
 A global registry was rejected because per-application state already isolates tests and avoids cross-instance interference.
 

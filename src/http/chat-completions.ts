@@ -12,6 +12,7 @@ import {
   mapChatUsage,
   createStreamControl,
   streamChatCompletion,
+  type StreamControl,
 } from "./sse.js";
 import { normalizeProxyError, ProxyError } from "./proxy-errors.js";
 
@@ -130,6 +131,37 @@ export function registerChatCompletions(
   const deadlineMs = requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
   app.register(async (proxy) => {
     let active = 0;
+    // Set synchronously at the start of preClose. From that moment new
+    // streaming requests are rejected before admission, so the stream
+    // registry below can only shrink while closing and the preClose loop
+    // terminates. Non-streaming requests keep draining as before.
+    let closing = false;
+
+    // One entry per admitted streaming request. The registry lives in this
+    // plugin closure, so every createApp() instance owns an independent
+    // registry and no module-global state is shared across applications.
+    interface ActiveStream {
+      readonly control: StreamControl;
+      readonly settled: Promise<void>;
+    }
+    const activeStreams = new Set<ActiveStream>();
+
+    // Shutdown aborts every admitted stream — including one whose adapter
+    // has not produced its first event yet — and awaits the settlement of
+    // each hijacked response, so app.close() completes within the caller's
+    // grace period instead of blocking on open sockets. Entries that settle
+    // during an await unregister themselves; the loop re-snapshots so late
+    // settlements cannot strand a stream. A stream that still fails to
+    // settle is left to the existing shutdown timeout path.
+    proxy.addHook("preClose", async () => {
+      closing = true;
+      while (activeStreams.size > 0) {
+        const pending = [...activeStreams];
+        for (const stream of pending) stream.control.abort("shutdown");
+        await Promise.allSettled(pending.map((stream) => stream.settled));
+      }
+    });
+
     proxy.setErrorHandler((error, _request, reply) => {
       const code =
         typeof error === "object" && error !== null && "code" in error
@@ -172,6 +204,10 @@ export function registerChatCompletions(
         const streamOperation = parsed.stream ? adapter.stream : undefined;
         if (parsed.stream && streamOperation === undefined)
           throw new ProxyError("internal_error");
+        // Once closing begins, new streaming requests are refused before
+        // admission so they can never outlive the preClose abort loop.
+        // Non-streaming requests keep draining through shutdown.
+        if (parsed.stream && closing) throw new ProxyError("gateway_busy");
         if (active >= 64) throw new ProxyError("gateway_busy");
         active++;
         try {
@@ -200,6 +236,19 @@ export function registerChatCompletions(
             deadlineMs,
           );
           deadline.unref();
+          let markSettled: () => void = () => {};
+          const settled = new Promise<void>((resolve) => {
+            markSettled = resolve;
+          });
+          const entry: ActiveStream = { control, settled };
+          // Registered synchronously with admission, before the adapter is
+          // invoked, so preClose can abort even a stream that has not yet
+          // produced — let alone committed — its first event. The closing
+          // gate above makes this the only registration point, and the
+          // check-and-register span is fully synchronous, so no entry can
+          // appear after preClose started. Unregistered and settled on
+          // every exit path below.
+          activeStreams.add(entry);
           try {
             await streamChatCompletion(
               reply,
@@ -215,6 +264,8 @@ export function registerChatCompletions(
             return;
           } finally {
             clearTimeout(deadline);
+            activeStreams.delete(entry);
+            markSettled();
           }
         } finally {
           active--;
