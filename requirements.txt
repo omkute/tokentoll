@@ -1,4 +1,4 @@
-# tokenToll Project Agent Guide
+ tokenToll Project
 
 ## Mission
 
@@ -10,7 +10,7 @@ The human developer is building the system to understand backend engineering, di
 
 ## Source of truth
 
-`AGENT.md` is the only retained project document. Before planning or changing behavior:
+AGENTS.md is the only retained project document. Before planning or changing behavior:
 
 1. Read this guide.
 2. Inspect the current repository, tests, and configuration.
@@ -34,7 +34,6 @@ The foundation milestone excludes PostgreSQL, Redis, authentication, provider in
 
 Keep two operational planes distinct:
 
-```text
 Client
   |
   v
@@ -44,13 +43,13 @@ Data plane: authenticate -> enforce policy -> cache -> route -> adapt -> stream
   |
   v
 Control plane: tenants -> teams -> keys -> providers -> budgets -> reporting
-```
+
 
 The data plane is latency-sensitive and must avoid administrative work and synchronous telemetry writes on the request path. Provider-specific behavior belongs behind explicit adapters; gateway contracts must remain provider-neutral.
 
 ### Unified model classification
 
-Represent every routable provider/model target as one `model deployment` entity in a unified catalog. Provider origin, nationality, market position, or labels such as global, frontier, premium, and cost-efficient are not separate model classes and must not create separate specifications, modules, routing branches, or configuration entities.
+Represent every routable provider/model target as one model deployment entity in a unified catalog. Provider origin, nationality, market position, or labels such as global, frontier, premium, and cost-efficient are not separate model classes and must not create separate specifications, modules, routing branches, or configuration entities.
 
 Determine deployment eligibility from supported capabilities, context limits, tenant/key policy, governance restrictions, credentials, availability, health, and circuit state. After eligibility is established, cost-aware routing compares the same configured input-token, output-token, and cache-token rates for every deployment. Use explicit operator policy for any preference that is not cost-based.
 
