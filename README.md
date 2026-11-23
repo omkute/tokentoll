@@ -94,11 +94,12 @@ curl http://127.0.0.1:3000/health
 
 ### Runtime configuration
 
-| Variable            | Default   | Valid values                                  |
-| ------------------- | --------- | --------------------------------------------- |
-| `HOST`              | `0.0.0.0` | A non-empty string after whitespace trimming  |
-| `PORT`              | `3000`    | A decimal integer from `1` through `65535`    |
-| `SHUTDOWN_GRACE_MS` | `10000`   | A decimal integer from `1` through `60000` ms |
+| Variable             | Default   | Valid values                                   |
+| -------------------- | --------- | ---------------------------------------------- |
+| `HOST`               | `0.0.0.0` | A non-empty string after whitespace trimming   |
+| `PORT`               | `3000`    | A decimal integer from `1` through `65535`     |
+| `SHUTDOWN_GRACE_MS`  | `10000`   | A decimal integer from `1` through `60000` ms  |
+| `REQUEST_TIMEOUT_MS` | `30000`   | A decimal integer from `1` through `300000` ms |
 
 Invalid configuration fails before the HTTP listener opens. `GET /health`
 reports process liveness only; it does not claim downstream readiness.

@@ -119,6 +119,25 @@ test("invalid configuration fails safely before opening a listener", async () =>
   await expect(fetch(`http://127.0.0.1:${port}/health`)).rejects.toThrow();
 });
 
+test("an invalid request timeout fails safely before opening a listener", async () => {
+  const port = await unusedPort();
+  const result = await runProductionServer({
+    HOST: "127.0.0.1",
+    PORT: String(port),
+    SHUTDOWN_GRACE_MS: "100",
+    REQUEST_TIMEOUT_MS: "300001",
+  });
+
+  expect(result.code).toBe(1);
+  expect(result.signal).toBeNull();
+  expect(result.stdout).toBe("");
+  expect(result.stderr.trim()).toBe(
+    "Invalid runtime configuration: REQUEST_TIMEOUT_MS",
+  );
+  expect(result.stderr).not.toContain("300001");
+  await expect(fetch(`http://127.0.0.1:${port}/health`)).rejects.toThrow();
+});
+
 test("an unavailable address fails without replacing its listener", async () => {
   const occupyingServer = createServer((_request, response) => {
     response.end("occupied");

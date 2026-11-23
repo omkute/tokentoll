@@ -29,6 +29,7 @@ describe("loadRuntimeConfig", () => {
       host: "0.0.0.0",
       port: 3000,
       shutdownGraceMs: 10_000,
+      requestTimeoutMs: 30_000,
     });
     expect(Object.isFrozen(config)).toBe(true);
   });
@@ -39,11 +40,13 @@ describe("loadRuntimeConfig", () => {
         HOST: "127.0.0.1",
         PORT: "8080",
         SHUTDOWN_GRACE_MS: "2500",
+        REQUEST_TIMEOUT_MS: "45000",
       }),
     ).toEqual({
       host: "127.0.0.1",
       port: 8080,
       shutdownGraceMs: 2500,
+      requestTimeoutMs: 45_000,
     });
   });
 
@@ -53,11 +56,13 @@ describe("loadRuntimeConfig", () => {
         HOST: "  localhost  ",
         PORT: " 3001 ",
         SHUTDOWN_GRACE_MS: " 5000\t",
+        REQUEST_TIMEOUT_MS: " 20000\t",
       }),
     ).toEqual({
       host: "localhost",
       port: 3001,
       shutdownGraceMs: 5000,
+      requestTimeoutMs: 20_000,
     });
   });
 
@@ -66,9 +71,16 @@ describe("loadRuntimeConfig", () => {
     ["PORT", "65535", 65_535],
     ["SHUTDOWN_GRACE_MS", "1", 1],
     ["SHUTDOWN_GRACE_MS", "60000", 60_000],
+    ["REQUEST_TIMEOUT_MS", "1", 1],
+    ["REQUEST_TIMEOUT_MS", "300000", 300_000],
   ] as const)("accepts the %s boundary %s", (variable, value, expected) => {
     const config = loadRuntimeConfig({ [variable]: value });
-    const actual = variable === "PORT" ? config.port : config.shutdownGraceMs;
+    const actual =
+      variable === "PORT"
+        ? config.port
+        : variable === "SHUTDOWN_GRACE_MS"
+          ? config.shutdownGraceMs
+          : config.requestTimeoutMs;
 
     expect(actual).toBe(expected);
   });
@@ -78,6 +90,8 @@ describe("loadRuntimeConfig", () => {
     ["PORT", "65536"],
     ["SHUTDOWN_GRACE_MS", "0"],
     ["SHUTDOWN_GRACE_MS", "60001"],
+    ["REQUEST_TIMEOUT_MS", "0"],
+    ["REQUEST_TIMEOUT_MS", "300001"],
   ] as const)("rejects the %s out-of-range boundary %s", (variable, value) => {
     expectInvalid({ [variable]: value }, [variable]);
   });
@@ -95,6 +109,13 @@ describe("loadRuntimeConfig", () => {
     ["SHUTDOWN_GRACE_MS", "+1"],
     ["SHUTDOWN_GRACE_MS", "1e3"],
     ["SHUTDOWN_GRACE_MS", "0x10"],
+    ["REQUEST_TIMEOUT_MS", "not-a-number"],
+    ["REQUEST_TIMEOUT_MS", "1.5"],
+    ["REQUEST_TIMEOUT_MS", "-1"],
+    ["REQUEST_TIMEOUT_MS", "+1"],
+    ["REQUEST_TIMEOUT_MS", "1e3"],
+    ["REQUEST_TIMEOUT_MS", "0x10"],
+    ["REQUEST_TIMEOUT_MS", ""],
   ] as const)(
     "rejects invalid integer syntax for %s: %s",
     (variable, value) => {

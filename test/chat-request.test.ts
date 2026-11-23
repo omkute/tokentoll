@@ -6,12 +6,49 @@ import mixed from "./fixtures/chat-completions/mixed-request.json";
 import rejected from "./fixtures/chat-completions/rejected-requests.json";
 
 test("accepted fixtures preserve neutral values and omit wire fields", () => {
-  expect(parseChatRequest(request)).toEqual({
-    messages: request.messages,
-    maxOutputTokens: 16,
+  const parsedMixed = parseChatRequest(mixed);
+  expect(parsedMixed).toEqual({
+    request: { messages: mixed.messages },
+    stream: false,
+    includeUsage: false,
   });
-  expect(parseChatRequest(mixed)).toEqual({ messages: mixed.messages });
-  expect(Object.isFrozen(parseChatRequest(mixed).messages)).toBe(true);
+  expect(Object.isFrozen(parsedMixed)).toBe(true);
+  expect(Object.isFrozen(parsedMixed.request)).toBe(true);
+  expect(Object.isFrozen(parsedMixed.request.messages)).toBe(true);
+  expect(parseChatRequest(request)).toEqual({
+    request: { messages: request.messages, maxOutputTokens: 16 },
+    stream: false,
+    includeUsage: false,
+  });
+});
+
+test.each([
+  { stream: true },
+  { stream: true, stream_options: {} },
+  { stream: true, stream_options: { include_usage: false } },
+] as const)(
+  "streaming controls %j never enter the neutral request",
+  (control) => {
+    expect(parseChatRequest({ ...mixed, ...control })).toEqual({
+      request: { messages: mixed.messages },
+      stream: true,
+      includeUsage: false,
+    });
+  },
+);
+
+test("stream_options.include_usage selects usage reporting", () => {
+  expect(
+    parseChatRequest({
+      ...mixed,
+      stream: true,
+      stream_options: { include_usage: true },
+    }),
+  ).toEqual({
+    request: { messages: mixed.messages },
+    stream: true,
+    includeUsage: true,
+  });
 });
 
 const invalid = [
@@ -25,10 +62,25 @@ const invalid = [
     "tenant",
     "SECRET-KEY",
   ].map((key) => ({ ...request, [key]: 1 })),
-  ...[true, null, "false", 0, undefined].map((stream) => ({
+  ...[null, "true", "false", 0, 1, undefined].map((stream) => ({
     ...request,
     stream,
   })),
+  ...[
+    null,
+    [],
+    "include_usage",
+    { include_usage: null },
+    { include_usage: "true" },
+    { include_usage: 0 },
+    { include_usage: 1 },
+    { include_usage: true, extra: 1 },
+    { unknown: true },
+  ].map((stream_options) => ({ ...request, stream: true, stream_options })),
+  ...[{}, { include_usage: true }, { include_usage: false }, null].map(
+    (stream_options) => ({ ...mixed, stream_options }),
+  ),
+  { ...request, stream: false, stream_options: { include_usage: true } },
   ...[null, 0, -1, 1.5, "16", 8193, undefined].map((max_completion_tokens) => ({
     ...request,
     max_completion_tokens,
@@ -55,7 +107,7 @@ test.each(invalid.map((input) => [input]))(
 
 test.each([1, 8192])("output-token boundary %i is accepted", (limit) => {
   expect(
-    parseChatRequest({ ...request, max_completion_tokens: limit })
+    parseChatRequest({ ...request, max_completion_tokens: limit }).request
       .maxOutputTokens,
   ).toBe(limit);
 });
@@ -65,7 +117,7 @@ test.each([1, 128])("message count %i is accepted", (count) => {
     parseChatRequest({
       ...request,
       messages: Array.from({ length: count }, () => request.messages[0]),
-    }).messages,
+    }).request.messages,
   ).toHaveLength(count);
 });
 

@@ -278,6 +278,55 @@ export function createGenerationResponse(
   });
 }
 
+export interface StreamSequenceValidator {
+  accept(event: unknown): NormalizedStreamEvent;
+  complete(): void;
+  readonly usage: NormalizedUsage | undefined;
+  readonly isComplete: boolean;
+}
+
+export function createStreamSequenceValidator(): StreamSequenceValidator {
+  let usage: NormalizedUsage | undefined;
+  let completed = false;
+
+  return {
+    accept(event: unknown): NormalizedStreamEvent {
+      if (completed) {
+        throw new DomainValidationError(["sequence"]);
+      }
+
+      const normalized = createStreamEvent(event);
+      if (normalized.type === "usage") {
+        if (usage !== undefined) {
+          throw new DomainValidationError(["usage"]);
+        }
+        usage = normalized.usage;
+      } else if (normalized.type === "content_delta") {
+        if (usage !== undefined) {
+          throw new DomainValidationError(["sequence"]);
+        }
+      } else if (normalized.type === "completed") {
+        completed = true;
+      }
+      return normalized;
+    },
+
+    complete(): void {
+      if (!completed) {
+        throw new DomainValidationError(["completed"]);
+      }
+    },
+
+    get usage(): NormalizedUsage | undefined {
+      return usage;
+    },
+
+    get isComplete(): boolean {
+      return completed;
+    },
+  };
+}
+
 export function createStreamEvent(input: unknown): NormalizedStreamEvent {
   if (!isRecord(input)) {
     throw new DomainValidationError(["streamEvent"]);

@@ -2,6 +2,7 @@ export interface RuntimeConfig {
   readonly host: string;
   readonly port: number;
   readonly shutdownGraceMs: number;
+  readonly requestTimeoutMs: number;
 }
 
 export type RuntimeEnvironment = Readonly<Record<string, string | undefined>>;
@@ -9,13 +10,17 @@ export type RuntimeEnvironment = Readonly<Record<string, string | undefined>>;
 const DEFAULT_HOST = "0.0.0.0";
 const DEFAULT_PORT = 3000;
 const DEFAULT_SHUTDOWN_GRACE_MS = 10_000;
+const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 
 const PORT_MIN = 1;
 const PORT_MAX = 65_535;
 const SHUTDOWN_GRACE_MS_MIN = 1;
 const SHUTDOWN_GRACE_MS_MAX = 60_000;
+const REQUEST_TIMEOUT_MS_MIN = 1;
+const REQUEST_TIMEOUT_MS_MAX = 300_000;
 
-export type RuntimeConfigVariable = "HOST" | "PORT" | "SHUTDOWN_GRACE_MS";
+export type RuntimeConfigVariable =
+  "HOST" | "PORT" | "SHUTDOWN_GRACE_MS" | "REQUEST_TIMEOUT_MS";
 
 export class RuntimeConfigError extends Error {
   readonly invalidVariables: readonly RuntimeConfigVariable[];
@@ -76,11 +81,28 @@ export function loadRuntimeConfig(
     invalidVariables.push("SHUTDOWN_GRACE_MS");
   }
 
+  const configuredRequestTimeoutMs = environment.REQUEST_TIMEOUT_MS;
+  const requestTimeoutMs =
+    configuredRequestTimeoutMs === undefined
+      ? DEFAULT_REQUEST_TIMEOUT_MS
+      : parseInteger(
+          configuredRequestTimeoutMs,
+          REQUEST_TIMEOUT_MS_MIN,
+          REQUEST_TIMEOUT_MS_MAX,
+        );
+  if (requestTimeoutMs === undefined) {
+    invalidVariables.push("REQUEST_TIMEOUT_MS");
+  }
+
   if (invalidVariables.length > 0) {
     throw new RuntimeConfigError(invalidVariables);
   }
 
-  if (port === undefined || shutdownGraceMs === undefined) {
+  if (
+    port === undefined ||
+    shutdownGraceMs === undefined ||
+    requestTimeoutMs === undefined
+  ) {
     throw new Error("Runtime configuration validation invariant violated");
   }
 
@@ -88,5 +110,6 @@ export function loadRuntimeConfig(
     host,
     port,
     shutdownGraceMs,
+    requestTimeoutMs,
   });
 }

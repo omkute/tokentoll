@@ -106,7 +106,7 @@ export async function startServer(
   environment: RuntimeEnvironment = process.env,
 ): Promise<void> {
   const config = loadRuntimeConfig(environment);
-  const app = createApp();
+  const app = createApp({ requestTimeoutMs: config.requestTimeoutMs });
 
   try {
     await app.listen({

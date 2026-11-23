@@ -4,7 +4,10 @@ import { registerChatCompletions } from "./http/chat-completions.js";
 import { createMockChat } from "./mock-chat.js";
 
 export function createApp(
-  options: { readonly adapter?: ProviderAdapter } = {},
+  options: {
+    readonly adapter?: ProviderAdapter;
+    readonly requestTimeoutMs?: number;
+  } = {},
 ): FastifyInstance {
   const app = fastify({ logger: false });
   const mock = createMockChat();
@@ -14,6 +17,7 @@ export function createApp(
     app,
     options.adapter ?? mock.adapter,
     mock.deployment,
+    options.requestTimeoutMs,
   );
 
   return app;
