@@ -29,6 +29,7 @@ export const invocation = {
       output: 0,
       cacheRead: 0,
     },
+    enabled: true,
   }),
 };
 export const response = {
@@ -265,6 +266,7 @@ test("mock stream validates the invocation before the configured outcome", async
       output: 0,
       cacheRead: 0,
     },
+    enabled: true,
   });
   for (const outcome of ["provider_error", "timeout"] as const) {
     const adapter = createMockProvider({

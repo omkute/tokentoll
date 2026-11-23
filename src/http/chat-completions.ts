@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
-import type { ModelDeployment } from "../domain/model-deployment.js";
-import type { ProviderAdapter } from "../domain/provider-adapter.js";
+import {
+  estimateContextTokens,
+  type DeploymentRouter,
+} from "../domain/deployment-eligibility.js";
 import {
   createGenerationRequest,
   createGenerationResponse,
@@ -18,6 +20,8 @@ import { normalizeProxyError, ProxyError } from "./proxy-errors.js";
 
 export const CHAT_MODEL = "mock-chat";
 const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
+const GENERATION_CAPABILITIES = ["generation"] as const;
+const STREAMING_CAPABILITIES = ["generation", "streaming"] as const;
 const REQUEST_KEYS = new Set([
   "model",
   "messages",
@@ -124,8 +128,7 @@ export function serializeChatResponse(input: unknown): string {
 
 export function registerChatCompletions(
   app: FastifyInstance,
-  adapter: ProviderAdapter,
-  deployment: ModelDeployment,
+  router: DeploymentRouter,
   requestTimeoutMs?: number,
 ): void {
   const deadlineMs = requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
@@ -201,9 +204,18 @@ export function registerChatCompletions(
       },
       async (request, reply) => {
         const parsed = parseChatRequest(request.body);
+        const selected = router.select({
+          capabilities: parsed.stream
+            ? STREAMING_CAPABILITIES
+            : GENERATION_CAPABILITIES,
+          contextTokens: estimateContextTokens(parsed.request),
+        });
+        if (selected === undefined)
+          throw new ProxyError("deployment_unavailable");
+        const { adapter, deployment } = selected;
         const streamOperation = parsed.stream ? adapter.stream : undefined;
         if (parsed.stream && streamOperation === undefined)
-          throw new ProxyError("internal_error");
+          throw new ProxyError("deployment_unavailable");
         // Once closing begins, new streaming requests are refused before
         // admission so they can never outlive the preClose abort loop.
         // Non-streaming requests keep draining through shutdown.

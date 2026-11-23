@@ -34,6 +34,7 @@ const invocation: ProviderInvocation = {
       output: 0,
       cacheRead: 0,
     },
+    enabled: true,
   }),
 };
 

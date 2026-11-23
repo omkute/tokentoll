@@ -10,6 +10,7 @@ function validDeployment(overrides: Record<string, unknown> = {}): unknown {
     providerModelId: "model-a",
     capabilities: ["generation"],
     contextWindowTokens: 8_192,
+    enabled: true,
     prices: {
       currency: "USD",
       unit: "micros_per_million_tokens",
@@ -145,6 +146,19 @@ describe("createModelDeployment", () => {
       ]);
     },
   );
+
+  test.each([undefined, null, "true", 1, 0])(
+    "rejects invalid enablement: %j",
+    (enabled) => {
+      expectInvalidDeployment(validDeployment({ enabled }), ["enabled"]);
+    },
+  );
+
+  test.each([true, false])("accepts explicit enablement %s", (enabled) => {
+    expect(createModelDeployment(validDeployment({ enabled })).enabled).toBe(
+      enabled,
+    );
+  });
 
   test("accepts the positive context-window boundary", () => {
     expect(

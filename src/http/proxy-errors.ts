@@ -16,6 +16,11 @@ const ERRORS = {
     "Upstream rate limit exceeded.",
   ],
   upstream_unavailable: [503, "server_error", "Upstream unavailable."],
+  deployment_unavailable: [
+    503,
+    "server_error",
+    "No eligible deployment available.",
+  ],
   upstream_error: [502, "server_error", "Upstream request failed."],
   invalid_provider_response: [
     502,

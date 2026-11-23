@@ -17,6 +17,7 @@ export interface ModelDeployment {
   readonly capabilities: readonly ModelCapability[];
   readonly contextWindowTokens: number;
   readonly prices: TokenPrices;
+  readonly enabled: boolean;
 }
 
 const DEPLOYMENT_KEYS = new Set([
@@ -26,6 +27,7 @@ const DEPLOYMENT_KEYS = new Set([
   "capabilities",
   "contextWindowTokens",
   "prices",
+  "enabled",
 ]);
 const PRICE_KEYS = new Set([
   "currency",
@@ -168,6 +170,11 @@ export function createModelDeployment(input: unknown): ModelDeployment {
     invalidPaths.push("contextWindowTokens");
   }
 
+  const enabled = input.enabled;
+  if (typeof enabled !== "boolean") {
+    invalidPaths.push("enabled");
+  }
+
   const prices = createPrices(input.prices, invalidPaths);
   if (invalidPaths.length > 0) {
     throw new DomainValidationError(invalidPaths);
@@ -180,5 +187,6 @@ export function createModelDeployment(input: unknown): ModelDeployment {
     capabilities: Object.freeze(capabilities),
     contextWindowTokens: contextWindowTokens as number,
     prices: prices as TokenPrices,
+    enabled: enabled as boolean,
   });
 }

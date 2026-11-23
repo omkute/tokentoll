@@ -292,8 +292,8 @@ test.each([
         return success;
       },
     } as ProviderAdapter,
-    status: 500,
-    code: "internal_error" as const,
+    status: 503,
+    code: "deployment_unavailable" as const,
   },
   {
     label: "immediate provider error",

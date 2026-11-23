@@ -7,8 +7,8 @@ export function createMockChat() {
       deploymentId: "mock-chat-deployment",
       adapterId: "mock",
       providerModelId: "mock-chat-model",
-      capabilities: ["generation"],
-      contextWindowTokens: 8192,
+      capabilities: ["generation", "streaming"],
+      contextWindowTokens: 131_072,
       prices: {
         currency: "USD",
         unit: "micros_per_million_tokens",
@@ -16,6 +16,7 @@ export function createMockChat() {
         output: 0,
         cacheRead: 0,
       },
+      enabled: true,
     }),
     adapter: createMockProvider({
       outcome: "success",

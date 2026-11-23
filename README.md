@@ -107,10 +107,11 @@ reports process liveness only; it does not claim downstream readiness.
 ## Mock chat completions
 
 `POST /v1/chat/completions` accepts the following strict subset. No credentials
-are required. The only model alias is `mock-chat`; every request goes to one
-fixed deterministic mock adapter without external network access. Omitting
-`stream` or sending `"stream":false` returns one JSON completion; sending
-`"stream":true` returns a Server-Sent Events stream.
+are required. The only model alias is `mock-chat`; every request is evaluated
+against the deployment catalog and served by the first eligible deterministic
+mock deployment without external network access. Omitting `stream` or sending
+`"stream":false` returns one JSON completion; sending `"stream":true` returns a
+Server-Sent Events stream.
 
 | Field                   | Accepted value                                                         |
 | ----------------------- | ---------------------------------------------------------------------- |
@@ -137,6 +138,30 @@ invocations; a streaming request holds its permit for the full lifetime of its
 event iterator, and extra valid requests fail immediately with no queue or
 retry. This bounds generation work, rather than all inbound sockets or
 transport buffers.
+
+### Deployment eligibility
+
+The gateway keeps an ordered in-process catalog of candidate deployments. A
+deployment is eligible only when all of these hold:
+
+- its explicit `enabled` fact is `true`;
+- it declares every required capability — `generation` always, plus `streaming`
+  when the request selects SSE — and its adapter exposes the matching operation;
+- its context window is at least the request's conservative context estimate.
+
+The context estimate is the sum of each message's UTF-8 byte length, four tokens
+per message for framing, and `max_completion_tokens`, or 8192 tokens when the
+limit is omitted. Byte length is an upper bound on content tokens, so the
+estimate errs toward exclusion rather than context overflow. The default mock
+deployment declares `generation` and `streaming`, is enabled, and has a 131,072
+token context window, so every request accepted by the field table above remains
+eligible.
+
+Selection is deterministic: the first eligible deployment in catalog order is
+used, and order is the only operator preference until cost-aware routing is
+approved. A known model with no eligible deployment returns 503
+`deployment_unavailable` before admission, consumes no admission permit, and
+invokes no adapter. An unknown model still returns 404 `model_not_found`.
 
 ### Non-streaming example
 
@@ -263,11 +288,13 @@ response has committed.
 | 502  | `server_error`          | `upstream_error`            | Adapter reports provider failure     |
 | 502  | `server_error`          | `invalid_provider_response` | Invalid or oversized adapter output  |
 | 503  | `server_error`          | `upstream_unavailable`      | Adapter reports unavailability       |
+| 503  | `server_error`          | `deployment_unavailable`    | Known model has no eligible target   |
 | 503  | `server_error`          | `gateway_busy`              | Local active-call cap reached        |
 | 504  | `server_error`          | `upstream_timeout`          | Adapter timeout or request deadline  |
 
-Excluded from this milestone, as later roadmap scope: live providers, routing,
-retries and fallback, authentication, tenant quotas, persistence, telemetry,
+Excluded from this milestone, as later roadmap scope: live providers,
+cost-aware routing, retries and fallback, circuit breaking, health and
+readiness signals, authentication, tenant quotas, persistence, telemetry,
 caching, guardrails, benchmarks, resumable streams, multiple choices, tool
 calls, heartbeats, compression, and control-plane or tenant administration. The
 health endpoint and graceful signal shutdown remain available. Throughput and
