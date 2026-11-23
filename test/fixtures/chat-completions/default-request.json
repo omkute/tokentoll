@@ -1,0 +1,6 @@
+{
+  "model": "mock-chat",
+  "messages": [{ "role": "user", "content": "Hello" }],
+  "max_completion_tokens": 16,
+  "stream": false
+}

@@ -1,0 +1,8 @@
+{
+  "model": "mock-chat",
+  "messages": [
+    { "role": "system", "content": "  Be helpful.\n" },
+    { "role": "user", "content": "नमस्ते 🌍" },
+    { "role": "assistant", "content": " Hello! " }
+  ]
+}

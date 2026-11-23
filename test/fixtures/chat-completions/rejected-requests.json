@@ -1,0 +1,32 @@
+[
+  null,
+  [],
+  1,
+  "hello",
+  {},
+  { "model": "mock-chat" },
+  { "messages": [{ "role": "user", "content": "Hello" }] },
+  { "model": null, "messages": [{ "role": "user", "content": "Hello" }] },
+  { "model": 1, "messages": [{ "role": "user", "content": "Hello" }] },
+  { "model": "  ", "messages": [{ "role": "user", "content": "Hello" }] },
+  { "model": "mock-chat", "messages": [] },
+  { "model": "mock-chat", "messages": [null] },
+  { "model": "mock-chat", "messages": [{ "role": "user", "content": null }] },
+  { "model": "mock-chat", "messages": [{ "role": "user", "content": " " }] },
+  { "model": "mock-chat", "messages": [{ "role": "user", "content": 123 }] },
+  { "model": "mock-chat", "messages": [{ "role": "user", "content": [] }] },
+  {
+    "model": "mock-chat",
+    "messages": [{ "role": "tool", "content": "Hello" }]
+  },
+  {
+    "model": "mock-chat",
+    "messages": [{ "role": "developer", "content": "Hello" }]
+  },
+  { "model": "mock-chat", "messages": [{ "content": "Hello" }] },
+  { "model": "mock-chat", "messages": [{ "role": "user" }] },
+  {
+    "model": "mock-chat",
+    "messages": [{ "role": "user", "content": "Hello", "name": "x" }]
+  }
+]

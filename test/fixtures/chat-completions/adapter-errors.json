@@ -1,0 +1,37 @@
+[
+  {
+    "category": "invalid_request",
+    "status": 400,
+    "type": "invalid_request_error",
+    "code": "invalid_request",
+    "message": "Invalid request."
+  },
+  {
+    "category": "timeout",
+    "status": 504,
+    "type": "server_error",
+    "code": "upstream_timeout",
+    "message": "Upstream request timed out."
+  },
+  {
+    "category": "rate_limited",
+    "status": 429,
+    "type": "rate_limit_error",
+    "code": "upstream_rate_limited",
+    "message": "Upstream rate limit exceeded."
+  },
+  {
+    "category": "provider_unavailable",
+    "status": 503,
+    "type": "server_error",
+    "code": "upstream_unavailable",
+    "message": "Upstream unavailable."
+  },
+  {
+    "category": "provider_error",
+    "status": 502,
+    "type": "server_error",
+    "code": "upstream_error",
+    "message": "Upstream request failed."
+  }
+]

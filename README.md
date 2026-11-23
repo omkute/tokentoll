@@ -103,6 +103,82 @@ curl http://127.0.0.1:3000/health
 Invalid configuration fails before the HTTP listener opens. `GET /health`
 reports process liveness only; it does not claim downstream readiness.
 
+## Non-streaming mock chat
+
+`POST /v1/chat/completions` accepts the following strict subset. No credentials
+are required. The only model alias is `mock-chat`; every request goes to one
+fixed deterministic mock adapter without external network access.
+
+```sh
+curl http://127.0.0.1:3000/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"mock-chat","messages":[{"role":"user","content":"Hello"}],"max_completion_tokens":16,"stream":false}'
+```
+
+| Field                   | Accepted value                                                         |
+| ----------------------- | ---------------------------------------------------------------------- |
+| `model`                 | Required exact string `mock-chat`                                      |
+| `messages`              | Required array of 1–128 messages                                       |
+| `messages[].role`       | `system`, `user`, or `assistant`                                       |
+| `messages[].content`    | Non-blank text string, preserved exactly                               |
+| `max_completion_tokens` | Optional integer from 1 through 8192, mapped to a neutral output limit |
+| `stream`                | Optional boolean `false`; omission also means non-streaming            |
+
+Only the listed root and message fields are accepted. Explicit nulls, type
+coercion, and unsupported fields are rejected, including `max_tokens`, `n`,
+`temperature`, `tools`, `response_format`, message `name`, and tenant identifiers.
+
+The response has a unique `chatcmpl-` id, an integer Unix-seconds `created`
+timestamp, `object: "chat.completion"`, `model: "mock-chat"`, one choice at index
+0 with assistant content `Mock response.` and `finish_reason: "stop"`, and usage:
+
+```json
+{
+  "prompt_tokens": 1,
+  "completion_tokens": 1,
+  "total_tokens": 2,
+  "prompt_tokens_details": { "cached_tokens": 0 }
+}
+```
+
+This content and usage are fixed synthetic fixture data, independent of the
+submitted messages. They do not represent real inference or measured tokens.
+The wire boundary also translates neutral `length` and `content_filter` finish
+reasons. Prompt usage includes cached input; cached tokens are not added again
+to the total.
+
+Requests must use `application/json` with an optional UTF-8 charset, with no
+compression (`identity` encoding is accepted). The body limit is 65,536 UTF-8
+bytes inclusive. Completion content is limited to 8192 UTF-8 bytes, and the
+entire serialized success body to 65,536 bytes; overflow is rejected without
+truncation. Each application instance admits at most 64 active adapter calls;
+extra valid requests fail immediately, with no queue or retry. This bounds
+generation work, rather than all inbound sockets or transport buffers.
+
+Errors use exactly `{"error":{"message":"<fixed safe message>","type":"<type>","param":null,"code":"<code>"}}`.
+Only `model_not_found` uses `param: "model"`. Submitted values and adapter
+diagnostics are excluded, and no retry instructions are emitted.
+
+| HTTP | Type                    | Code                        | Meaning                              |
+| ---- | ----------------------- | --------------------------- | ------------------------------------ |
+| 400  | `invalid_request_error` | `invalid_request`           | Invalid input or malformed JSON      |
+| 404  | `invalid_request_error` | `model_not_found`           | Unknown model in a valid request     |
+| 413  | `invalid_request_error` | `request_too_large`         | Request byte limit exceeded          |
+| 415  | `invalid_request_error` | `unsupported_media_type`    | Unsupported media, charset, encoding |
+| 429  | `rate_limit_error`      | `upstream_rate_limited`     | Adapter reports a rate limit         |
+| 500  | `server_error`          | `internal_error`            | Unexpected exception                 |
+| 502  | `server_error`          | `upstream_error`            | Adapter reports provider failure     |
+| 502  | `server_error`          | `invalid_provider_response` | Invalid or oversized adapter output  |
+| 503  | `server_error`          | `upstream_unavailable`      | Adapter reports unavailability       |
+| 503  | `server_error`          | `gateway_busy`              | Local active-call cap reached        |
+| 504  | `server_error`          | `upstream_timeout`          | Adapter reports a timeout            |
+
+This milestone includes no SSE, real upstream deadlines/cancellation, live
+providers, routing, tools, multimodal input, sampling controls, authentication,
+tenant quotas, caching, billing, or model discovery. The existing health endpoint
+and graceful signal shutdown remain available. Throughput and latency objectives
+remain unverified.
+
 ## Development
 
 ```sh

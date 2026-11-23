@@ -2,6 +2,8 @@ import { expect, test } from "bun:test";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createServer as createTcpServer } from "node:net";
 import { fileURLToPath } from "node:url";
+import chatRequest from "./fixtures/chat-completions/default-request.json";
+import chatResponse from "./fixtures/chat-completions/default-response.json";
 
 const serverArtifact = fileURLToPath(
   new URL("../dist/server.js", import.meta.url),
@@ -55,7 +57,7 @@ async function unusedPort(): Promise<number> {
 }
 
 function spawnProductionServer(port: number): ProductionChild {
-  const child = spawn(process.execPath, [serverArtifact], {
+  const child = spawn("node", [serverArtifact], {
     env: {
       ...process.env,
       HOST: "127.0.0.1",
@@ -148,6 +150,50 @@ test.each(["SIGINT", "SIGTERM"] as const)(
 
     try {
       await waitForHealth(port, child);
+      const response = await fetch(
+        `http://127.0.0.1:${port}/v1/chat/completions`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(chatRequest),
+          signal: AbortSignal.timeout(1000),
+        },
+      );
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      expect({ ...body, id: "<id>", created: 0 }).toEqual(chatResponse);
+
+      const sensitive = await fetch(
+        `http://127.0.0.1:${port}/v1/chat/completions`,
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            authorization: "Bearer PROCESS-SECRET-SENTINEL",
+          },
+          body: JSON.stringify({
+            ...chatRequest,
+            messages: [{ role: "user", content: "PROCESS-SECRET-SENTINEL" }],
+          }),
+          signal: AbortSignal.timeout(1000),
+        },
+      );
+      expect(sensitive.status).toBe(200);
+      await sensitive.text();
+      const invalid = await fetch(
+        `http://127.0.0.1:${port}/v1/chat/completions`,
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            authorization: "Bearer PROCESS-SECRET-SENTINEL",
+          },
+          body: '{"PROCESS-SECRET-SENTINEL":',
+          signal: AbortSignal.timeout(1000),
+        },
+      );
+      expect(invalid.status).toBe(400);
+      expect(await invalid.text()).not.toContain("PROCESS-SECRET-SENTINEL");
       expect(child.process.kill(signal)).toBe(true);
 
       const exit = await withTimeout(
